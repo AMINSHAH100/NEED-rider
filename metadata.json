@@ -1,0 +1,6 @@
+{
+  "name": "Food Rider",
+  "description": "একটি পূর্ণাঙ্গ ফুড ডেলিভারি রাইডার অ্যাপ (লাইভ অর্ডার ম্যানেজমেন্ট, টার্ন-বাই-টার্ন নেভিগেশন ম্যাপ, ক্যাশ অন ডেলিভারি ক্যালকুলেটর, ইনকাম ও ক্যাশআউট লেজার, ডেইলি কোয়েস্ট এবং এসওএস সাপোর্ট সহ)",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
