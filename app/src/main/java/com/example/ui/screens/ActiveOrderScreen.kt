@@ -1,7 +1,12 @@
 package com.example.ui.screens
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,19 +28,21 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckBox
-import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeliveryDining
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Fastfood
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Pin
 import androidx.compose.material.icons.filled.ReportProblem
+import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.TurnRight
 import androidx.compose.material.icons.filled.TwoWheeler
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -48,6 +55,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -60,14 +68,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.OrderEntity
 import com.example.ui.components.ActiveDeliveryMap
-import com.example.ui.theme.CashGold
 import com.example.ui.theme.OfflineRed
 import com.example.ui.theme.OnlineGreen
 import com.example.ui.theme.RiderPrimary
@@ -76,6 +87,8 @@ import com.example.ui.theme.RiderPrimary
 fun ActiveOrderScreen(
     order: OrderEntity?,
     routeProgress: Float,
+    isLocationStreaming: Boolean = false,
+    locationState: com.example.util.RiderLocationState? = null,
     onSimulateStep: () -> Unit,
     onResetSimulation: () -> Unit,
     onUpdateStatus: (OrderEntity, String) -> Unit,
@@ -83,9 +96,12 @@ fun ActiveOrderScreen(
     onOpenIssueReport: () -> Unit,
     onOpenSos: () -> Unit,
     onOpenChat: (String) -> Unit,
-    onCompleteDelivery: (OrderEntity, Double, Double, Double) -> Unit,
+    onCompleteDeliveryWithPin: (OrderEntity, String, Double, Double, Double) -> Unit,
     isBn: Boolean
 ) {
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+
     if (order == null) {
         Box(
             modifier = Modifier
@@ -98,7 +114,7 @@ fun ActiveOrderScreen(
                 Surface(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier.size(72.dp)
+                    modifier = Modifier.size(76.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.DeliveryDining,
@@ -116,22 +132,62 @@ fun ActiveOrderScreen(
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = if (isBn) "নতুন অর্ডার আসলে এখানে স্টেপ-বাই-স্টেপ নেভিগেশন দেখতে পাবেন।" else "When you accept an order, step-by-step navigation will appear here.",
+                    text = if (isBn) "নতুন অর্ডার গ্রহণ করলে এখানে পিকআপ পিন, লাইভ জিপিএস এবং কাস্টমার ডেলিভারি পিন দেখতে পাবেন।" else "Accept an incoming order to view pickup PIN, live GPS streaming, and customer delivery PIN verification.",
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    textAlign = TextAlign.Center
                 )
             }
         }
         return
     }
 
-    val isHeadingToCustomer = order.status in listOf("PICKED_UP", "ARRIVED_AT_CUST")
-    var enteredOtp by remember { mutableStateOf("") }
-    val isOtpValid = enteredOtp.trim() == order.customerOtp || enteredOtp.trim() == "1234"
+    // Determine current normalized stage
+    // Stages: 1. RIDER_ASSIGNED / ACCEPTED -> 2. ARRIVED_AT_REST -> 3. OUT_FOR_DELIVERY / PICKED_UP -> 4. ARRIVED_AT_CUST
+    val isHeadingToCustomer = order.status in listOf("OUT_FOR_DELIVERY", "PICKED_UP", "ARRIVED_AT_CUST")
+    val isOutForDelivery = order.status in listOf("OUT_FOR_DELIVERY", "PICKED_UP")
+    val isAtCustomer = order.status == "ARRIVED_AT_CUST"
+    val isAtRestaurant = order.status == "ARRIVED_AT_REST"
+
+    // Restaurant Pickup PIN input & validation state
+    var enteredRestaurantPin by remember { mutableStateOf("") }
+    var restaurantPinError by remember { mutableStateOf<String?>(null) }
+
+    // Delivery PIN input & validation state
+    var enteredDeliveryPin by remember { mutableStateOf("") }
+    var pinErrorMessage by remember { mutableStateOf<String?>(null) }
 
     // Item checklist state
     val checkedItems = remember { mutableStateMapOf<Int, Boolean>() }
+
+    // Navigation intent helper
+    val launchTurnByTurnNavigation = {
+        val destLat = if (!isHeadingToCustomer) order.restaurantLat else order.customerLat
+        val destLng = if (!isHeadingToCustomer) order.restaurantLng else order.customerLng
+        val destLabel = if (!isHeadingToCustomer) order.restaurantName else order.customerName
+
+        try {
+            // Google Maps turn-by-turn navigation intent
+            val gmmIntentUri = Uri.parse("google.navigation:q=$destLat,$destLng&mode=d")
+            val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri).apply {
+                setPackage("com.google.android.apps.maps")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(mapIntent)
+        } catch (_: Exception) {
+            try {
+                val genericUri = Uri.parse("geo:$destLat,$destLng?q=$destLat,$destLng(${Uri.encode(destLabel)})")
+                context.startActivity(Intent(Intent.ACTION_VIEW, genericUri).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                })
+            } catch (_: Exception) {
+                val webUri = Uri.parse("https://www.google.com/maps/dir/?api=1&destination=$destLat,$destLng")
+                context.startActivity(Intent(Intent.ACTION_VIEW, webUri).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                })
+            }
+        }
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -140,7 +196,7 @@ fun ActiveOrderScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Step Header Stepper Progress Indicator
+        // Step 1: Order Header & 4-Stage Stepper
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -153,12 +209,19 @@ fun ActiveOrderScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "Order ${order.orderNumber}",
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 17.sp,
-                            color = RiderPrimary
-                        )
+                        Column {
+                            Text(
+                                text = "Order ${order.orderNumber}",
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 17.sp,
+                                color = RiderPrimary
+                            )
+                            Text(
+                                text = if (order.firestoreId.isNotBlank()) "Cloud ID: ${order.firestoreId.take(8)}" else "Local Active Order",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
 
                         Surface(
                             shape = RoundedCornerShape(8.dp),
@@ -168,7 +231,7 @@ fun ActiveOrderScreen(
                                 text = if (order.paymentMethod == "COD") {
                                     if (isBn) "ক্যাশ অন ডেলিভারি (৳${order.totalBill.toInt()})" else "COD (৳${order.totalBill.toInt()})"
                                 } else {
-                                    if (isBn) "অনলাইন পেইড" else "Prepaid"
+                                    if (isBn) "অনলাইন পেইড" else "Prepaid Paid"
                                 },
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                 fontSize = 11.sp,
@@ -178,29 +241,53 @@ fun ActiveOrderScreen(
                         }
                     }
 
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Rider Earnings and Tips forced to 0.00
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (isBn) "রাইডার আয়: ৳${(order.deliveryFee + order.surgeBonus).toInt()} (ফি ৳${order.deliveryFee.toInt()} + সার্জ ৳${order.surgeBonus.toInt()})" else "Rider Pay: ৳${(order.deliveryFee + order.surgeBonus).toInt()} (Fee ৳${order.deliveryFee.toInt()} + Surge ৳${order.surgeBonus.toInt()})",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "Tips: ৳0.00",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = OnlineGreen
+                        )
+                    }
+
                     Spacer(modifier = Modifier.height(14.dp))
 
                     // 4-Stage Stepper
-                    val stages = listOf("ACCEPTED", "ARRIVED_AT_REST", "PICKED_UP", "ARRIVED_AT_CUST")
                     val currentStageIndex = when (order.status) {
-                        "ACCEPTED" -> 0
+                        "RIDER_ASSIGNED", "ACCEPTED" -> 0
                         "ARRIVED_AT_REST" -> 1
-                        "PICKED_UP" -> 2
+                        "OUT_FOR_DELIVERY", "PICKED_UP" -> 2
                         "ARRIVED_AT_CUST" -> 3
+                        "DELIVERED" -> 4
                         else -> 0
                     }
+
+                    val stepLabels = listOf(
+                        (if (isBn) "১. রেস্তোরাঁয়" else "1. To Rest"),
+                        (if (isBn) "২. পিকআপ পিন" else "2. Pickup PIN"),
+                        (if (isBn) "৩. লাইভ জিপিএস" else "3. Live GPS"),
+                        (if (isBn) "৪. ডেলিভারি পিন" else "4. Delivery PIN")
+                    )
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        listOf(
-                            (if (isBn) "রেস্তোরাঁয়" else "To Rest"),
-                            (if (isBn) "পিকআপ" else "Pickup"),
-                            (if (isBn) "কাস্টমারে" else "To Cust"),
-                            (if (isBn) "ডেলিভারি" else "Deliver")
-                        ).forEachIndexed { index, label ->
+                        stepLabels.forEachIndexed { index, label ->
                             val isDone = index < currentStageIndex
                             val isCurrent = index == currentStageIndex
 
@@ -246,23 +333,132 @@ fun ActiveOrderScreen(
             }
         }
 
+        // Live Location Streaming Status Pill Banner (During OUT_FOR_DELIVERY)
+        if (isOutForDelivery || isLocationStreaming) {
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = OnlineGreen.copy(alpha = 0.12f),
+                    border = androidx.compose.foundation.BorderStroke(1.5.dp, OnlineGreen)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(12.dp)
+                                .background(OnlineGreen, CircleShape)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (isBn) "📡 লাইভ জিপিএস লোকেশন শেয়ার হচ্ছে..." else "📡 Live GPS Location Streaming Active",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = OnlineGreen
+                            )
+                            Text(
+                                text = if (isBn) "কাস্টমার অ্যাপে আপনার রিয়েল-টাইম মুভমেন্ট প্রদর্শিত হচ্ছে।" else "Streaming to riders/{riderId}/location for Customer App live tracking.",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Turn-by-Turn Navigation Bar with Google Maps Launcher
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A))
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFF0284C7).copy(alpha = 0.2f),
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.TurnRight,
+                                contentDescription = "Turn by turn",
+                                tint = Color(0xFF38BDF8),
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = if (!isHeadingToCustomer) (if (isBn) "গন্তব্য: রেস্তোরাঁ পিকআপ" else "Target: Restaurant Pickup") else (if (isBn) "গন্তব্য: কাস্টমার ড্রপঅফ" else "Target: Customer Dropoff"),
+                                fontSize = 11.sp,
+                                color = Color(0xFF94A3B8)
+                            )
+                            Text(
+                                text = if (!isHeadingToCustomer) order.restaurantName else order.customerName,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1
+                            )
+                        }
+                    }
+
+                    // Direct Google Maps Turn-by-turn Navigation Button
+                    Button(
+                        onClick = { launchTurnByTurnNavigation() },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        modifier = Modifier.testTag("launch_google_maps_nav_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Navigation,
+                            contentDescription = null,
+                            modifier = Modifier.size(15.dp),
+                            tint = Color.White
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isBn) "গুগল ম্যাপে নেভিগেশন" else "Google Maps",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+        }
+
         // Live Interactive Map View
         item {
             ActiveDeliveryMap(
                 order = order,
                 progressFraction = routeProgress,
                 isHeadingToCustomer = isHeadingToCustomer,
+                currentLat = locationState?.latitude ?: 23.7937,
+                currentLng = locationState?.longitude ?: 90.4066,
+                speedKmh = locationState?.speedKmh ?: 28f,
+                isLiveGpsActive = locationState != null,
                 onSimulateStep = onSimulateStep,
                 onResetSimulation = onResetSimulation,
                 isBn = isBn,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(250.dp)
+                    .height(260.dp)
                     .testTag("active_delivery_map_view")
             )
         }
 
-        // Quick Communication & Support Action Bar
+        // Quick Communication & Support Action Bar (Call, Chat, Issue Report)
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -270,7 +466,15 @@ fun ActiveOrderScreen(
             ) {
                 // Call button
                 OutlinedButton(
-                    onClick = { /* Simulated direct dialer */ },
+                    onClick = {
+                        val phone = if (!isHeadingToCustomer) order.restaurantPhone else order.customerPhone
+                        val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))
+                        try {
+                            context.startActivity(intent)
+                        } catch (_: Exception) {
+                            Toast.makeText(context, "Dialer: $phone", Toast.LENGTH_SHORT).show()
+                        }
+                    },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp)
                 ) {
@@ -302,7 +506,7 @@ fun ActiveOrderScreen(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = if (isBn) "চ্যাট মেসেজ" else "Chat",
+                        text = if (isBn) "মেসেজ" else "Chat",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -326,6 +530,112 @@ fun ActiveOrderScreen(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     )
+                }
+            }
+        }
+
+        // REQUIREMENT 2: RESTAURANT PICKUP & PICKUP PIN (pickupPin) DISPLAY
+        if (isAtRestaurant || order.status in listOf("RIDER_ASSIGNED", "ACCEPTED")) {
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("restaurant_pickup_pin_card"),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFF59E0B))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(0xFFFEF3C7),
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Pin,
+                                        contentDescription = null,
+                                        tint = Color(0xFFD97706),
+                                        modifier = Modifier.padding(8.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = if (isBn) "রেস্তোরাঁ পিকআপ পিন (pickupPin)" else "Restaurant Pickup PIN (pickupPin)",
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = if (isBn) "রেস্তোরাঁ স্টাফকে এই কোডটি দেখান" else "Show this code to restaurant staff",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            // Copy button
+                            IconButton(
+                                onClick = {
+                                    val pin = order.pickupPin.ifBlank { order.pickupOtp }
+                                    clipboardManager.setText(AnnotatedString(pin))
+                                    Toast.makeText(context, "PIN copied: $pin", Toast.LENGTH_SHORT).show()
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = "Copy PIN",
+                                    tint = Color(0xFFD97706),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Large 4-digit PIN Display
+                        val displayPickupPin = order.pickupPin.ifBlank { order.pickupOtp }.take(4).padStart(4, '0')
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            displayPickupPin.forEach { digit ->
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0xFFFEF3C7),
+                                    border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFD97706)),
+                                    modifier = Modifier.size(54.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = "$digit",
+                                            fontSize = 26.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = Color(0xFF92400E)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text(
+                            text = if (isBn) "প্যাকেজের সঠিকতা নিশ্চিত করতে রেস্তোরাঁ কর্তৃপক্ষ এই ৪ ডিজিট কোডটি স্ক্যান/যাচাই করবে।" else "Restaurant staff verifies this 4-digit PIN to release the food bag to you.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                    }
                 }
             }
         }
@@ -418,21 +728,27 @@ fun ActiveOrderScreen(
                             )
                         }
 
-                        Text(
-                            text = "Pickup Code: #${order.pickupOtp}",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = RiderPrimary
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant
+                        ) {
+                            Text(
+                                text = "PIN: #${order.pickupPin.ifBlank { order.pickupOtp }}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = RiderPrimary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
-                    Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                    Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
                     Spacer(modifier = Modifier.height(8.dp))
 
                     val items = order.itemsSummary.split(", ")
                     items.forEachIndexed { idx, itemTitle ->
-                        val isChecked = checkedItems[idx] ?: (order.status != "ACCEPTED")
+                        val isChecked = checkedItems[idx] ?: (order.status !in listOf("ACCEPTED", "RIDER_ASSIGNED"))
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -459,10 +775,144 @@ fun ActiveOrderScreen(
             }
         }
 
-        // STEP ACTION BUTTONS BASED ON CURRENT STATUS
+        // REQUIREMENT 4: CUSTOMER DELIVERY & DELIVERY PIN (deliveryPin) VERIFICATION INPUT
+        if (isAtCustomer) {
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("delivery_pin_verification_card"),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = androidx.compose.foundation.BorderStroke(1.5.dp, OnlineGreen)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = OnlineGreen.copy(alpha = 0.15f),
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = OnlineGreen,
+                                    modifier = Modifier.padding(8.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = if (isBn) "কাস্টমার ডেলিভারি পিন যাচাই (deliveryPin)" else "Customer Delivery PIN Verification",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = if (isBn) "কাস্টমারের ফোন থেকে ৪ ডিজিটের পিন নিন" else "Enter the 4-digit code from customer's app",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Hint pill showing expected PIN for smooth testing
+                        val expectedPin = order.deliveryPin.ifBlank { order.customerOtp }
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (isBn) "কাস্টমার স্ক্রিনে থাকা পিন:" else "Customer deliveryPin:",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = expectedPin,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = OnlineGreen
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // PIN Input field
+                        OutlinedTextField(
+                            value = enteredDeliveryPin,
+                            onValueChange = {
+                                if (it.length <= 4) {
+                                    enteredDeliveryPin = it
+                                    pinErrorMessage = null
+                                }
+                            },
+                            placeholder = { Text(if (isBn) "৪ ডিজিট কোড লিখুন" else "Enter 4-digit PIN") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("customer_delivery_pin_input"),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = if (pinErrorMessage != null) OfflineRed else OnlineGreen,
+                                unfocusedBorderColor = if (pinErrorMessage != null) OfflineRed else MaterialTheme.colorScheme.outline
+                            ),
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Pin,
+                                    contentDescription = null,
+                                    tint = if (pinErrorMessage != null) OfflineRed else OnlineGreen
+                                )
+                            }
+                        )
+
+                        // Error alert message if PIN mismatched
+                        if (pinErrorMessage != null) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Error,
+                                    contentDescription = null,
+                                    tint = OfflineRed,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = pinErrorMessage!!,
+                                    color = OfflineRed,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // STEP ACTION BUTTONS BASED ON ORDER LIFECYCLE
         item {
             when (order.status) {
-                "ACCEPTED" -> {
+                // Step 1: Rider assigned -> Arrive at restaurant
+                "RIDER_ASSIGNED", "ACCEPTED" -> {
                     Button(
                         onClick = { onUpdateStatus(order, "ARRIVED_AT_REST") },
                         modifier = Modifier
@@ -475,34 +925,163 @@ fun ActiveOrderScreen(
                         Icon(imageVector = Icons.Default.Storefront, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (isBn) "রেস্তোরাঁয় পৌঁছেছি" else "Arrived at Restaurant",
+                            text = if (isBn) "রেস্তোরাঁয় পৌঁছেছি (Arrived at Restaurant)" else "Arrived at Restaurant",
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp
                         )
                     }
                 }
 
+                // Step 2: Arrived at restaurant -> MUST enter & verify restaurant pickup PIN before food collection
                 "ARRIVED_AT_REST" -> {
-                    Button(
-                        onClick = { onUpdateStatus(order, "PICKED_UP") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp)
-                            .testTag("confirm_pickup_button"),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = OnlineGreen)
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.Check, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (isBn) "খাবার সংগ্রহ করেছি (Start Delivery)" else "Confirm Food Picked Up",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp
-                        )
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("restaurant_pickup_pin_input_card"),
+                            shape = RoundedCornerShape(18.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFF59E0B))
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color(0xFFFEF3C7),
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Lock,
+                                            contentDescription = null,
+                                            tint = Color(0xFFD97706),
+                                            modifier = Modifier.padding(8.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = if (isBn) "রেস্তোরাঁ পিকআপ পিন ভেরিফিকেশন" else "Restaurant Pickup PIN Verification",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = if (isBn) "খাবার সংগ্রহ করতে রেস্তোরাঁর ৪ ডিজিটের কোড লিখুন" else "Enter 4-digit PIN from restaurant staff to collect food",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                val expectedPickupPin = order.pickupPin.ifBlank { order.pickupOtp }
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = if (isBn) "রেস্তোরাঁর চালানের পিকআপ পিন:" else "Expected Pickup PIN:",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            text = expectedPickupPin,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFD97706)
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                OutlinedTextField(
+                                    value = enteredRestaurantPin,
+                                    onValueChange = {
+                                        if (it.length <= 4) {
+                                            enteredRestaurantPin = it
+                                            restaurantPinError = null
+                                        }
+                                    },
+                                    placeholder = { Text(if (isBn) "৪ ডিজিট রেস্তোরাঁ পিন লিখুন" else "Enter 4-digit Pickup PIN") },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("restaurant_pickup_pin_field"),
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = if (restaurantPinError != null) OfflineRed else Color(0xFFF59E0B),
+                                        unfocusedBorderColor = if (restaurantPinError != null) OfflineRed else MaterialTheme.colorScheme.outline
+                                    ),
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Pin, contentDescription = null, tint = Color(0xFFD97706))
+                                    }
+                                )
+
+                                if (restaurantPinError != null) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = restaurantPinError!!,
+                                        color = OfflineRed,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
+
+                        Button(
+                            onClick = {
+                                val expected = order.pickupPin.ifBlank { order.pickupOtp }.trim()
+                                val trimmed = enteredRestaurantPin.trim()
+                                if (trimmed == expected) {
+                                    restaurantPinError = null
+                                    onUpdateStatus(order, "OUT_FOR_DELIVERY")
+                                } else {
+                                    restaurantPinError = if (isBn) {
+                                        "ভুল রেস্তোরাঁ পিকআপ পিন! সঠিক ৪ ডিজিটের কোড ($expected) লিখুন।"
+                                    } else {
+                                        "Invalid Pickup PIN! Enter the 4-digit code ($expected)."
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp)
+                                .testTag("confirm_pickup_handover_button"),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = OnlineGreen)
+                        ) {
+                            Icon(imageVector = Icons.Default.Check, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (isBn) "পিকআপ পিন যাচাই ও খাবার সংগ্রহ করুন ✓" else "Verify Pickup PIN & Confirm Food ✓",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp
+                            )
+                        }
                     }
                 }
 
-                "PICKED_UP" -> {
+                // Step 3: Out for delivery -> Arrive at customer dropoff
+                "OUT_FOR_DELIVERY", "PICKED_UP" -> {
                     Button(
                         onClick = { onUpdateStatus(order, "ARRIVED_AT_CUST") },
                         modifier = Modifier
@@ -515,13 +1094,14 @@ fun ActiveOrderScreen(
                         Icon(imageVector = Icons.Default.LocationOn, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (isBn) "কাস্টমারের ঠিকানায় পৌঁছেছি" else "Arrived at Customer",
+                            text = if (isBn) "কাস্টমারের ঠিকানায় পৌঁছেছি (Arrived at Dropoff)" else "Arrived at Customer Location",
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp
                         )
                     }
                 }
 
+                // Step 4: Arrived at customer -> Verify delivery PIN & Complete
                 "ARRIVED_AT_CUST" -> {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
@@ -549,62 +1129,33 @@ fun ActiveOrderScreen(
                             }
                         }
 
-                        // Customer Delivery OTP Input Field
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                        ) {
-                            Column(modifier = Modifier.padding(14.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = if (isBn) "কাস্টমার ডেলিভারি ওটিপি (OTP)" else "Customer Delivery OTP",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp
-                                    )
-                                    Text(
-                                        text = "Default OTP: ${order.customerOtp}",
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                OutlinedTextField(
-                                    value = enteredOtp,
-                                    onValueChange = { if (it.length <= 4) enteredOtp = it },
-                                    placeholder = { Text(if (isBn) "৪ ডিজিট কোড লিখুন (${order.customerOtp})" else "Enter 4-digit code (${order.customerOtp})") },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("customer_otp_input"),
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(10.dp)
-                                )
-                            }
-                        }
-
-                        // Complete Delivery Button
+                        // Complete Delivery with PIN verification Button
                         Button(
                             onClick = {
-                                onCompleteDelivery(order, order.totalBill, 0.0, order.tip)
+                                val expectedPin = order.deliveryPin.ifBlank { order.customerOtp }
+                                val trimmed = enteredDeliveryPin.trim()
+                                if (trimmed == expectedPin.trim()) {
+                                    pinErrorMessage = null
+                                    onCompleteDeliveryWithPin(order, trimmed, order.totalBill, 0.0, 0.0)
+                                } else {
+                                    pinErrorMessage = if (isBn) {
+                                        "ভুল ডেলিভারি পিন! কাস্টমারের ফোন থেকে সঠিক ৪ ডিজিট কোড ($expectedPin) নিন।"
+                                    } else {
+                                        "Invalid Delivery PIN! Ask customer for their 4-digit PIN ($expectedPin)."
+                                    }
+                                }
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(52.dp)
-                                .testTag("complete_delivery_button"),
+                                .testTag("verify_pin_and_complete_delivery_button"),
                             shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = OnlineGreen)
                         ) {
-                            Icon(imageVector = Icons.Default.Check, contentDescription = null)
+                            Icon(imageVector = Icons.Default.Verified, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = if (isBn) "ডেলিভারি সম্পন্ন করুন ✓" else "Complete Delivery ✓",
+                                text = if (isBn) "কাস্টমার পিন যাচাই ও ডেলিভারি সম্পন্ন করুন ✓" else "Verify Customer PIN & Complete Delivery ✓",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp
                             )

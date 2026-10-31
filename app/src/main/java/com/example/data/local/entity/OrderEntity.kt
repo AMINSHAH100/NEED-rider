@@ -7,6 +7,7 @@ import androidx.room.PrimaryKey
 data class OrderEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
+    val firestoreId: String = "",
     val orderNumber: String,
     val restaurantName: String,
     val restaurantAddress: String,
@@ -23,14 +24,19 @@ data class OrderEntity(
     val itemsJson: String = "",
     val totalBill: Double,
     val deliveryFee: Double,
-    val tip: Double = 0.0,
+    val tip: Double = 0.0, // Rider visible tip: forced to 0.00
+    val companyTip: Double = 0.0, // Hidden Company Tip
+    val adminFund: Double = 0.0, // Admin Development Fund
     val surgeBonus: Double = 0.0,
     val paymentMethod: String, // "COD" or "PREPAID"
-    val status: String, // "NEW_PING", "ACCEPTED", "ARRIVED_AT_REST", "PICKED_UP", "ARRIVED_AT_CUST", "DELIVERED", "REJECTED", "CANCELLED"
+    val status: String, // "READY_FOR_PICKUP", "RIDER_ASSIGNED", "ARRIVED_AT_REST", "OUT_FOR_DELIVERY", "ARRIVED_AT_CUST", "DELIVERED", "REJECTED"
     val distanceKm: Double,
     val estimatedMinutes: Int,
     val customerOtp: String = "4892",
-    val pickupOtp: String = "1024",
+    val pickupOtp: String = "5821",
+    val pickupPin: String = "5821",
+    val deliveryPin: String = "9412",
+    val isPlatformRiderEnabled: Boolean = true,
     val cashReceived: Double = 0.0,
     val changeToReturn: Double = 0.0,
     val isItemsChecked: Boolean = false,

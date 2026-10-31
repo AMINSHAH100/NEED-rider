@@ -38,4 +38,7 @@ class RiderRepository(private val dao: RiderDao) {
     suspend fun updateZone(zone: String) = dao.updateZone(zone)
     suspend fun updateAutoAccept(autoAccept: Boolean) = dao.updateAutoAccept(autoAccept)
     suspend fun updateVehicleType(vehicleType: String) = dao.updateVehicleType(vehicleType)
+    suspend fun updateAvailabilityStatus(status: String) = dao.updateAvailabilityStatus(status)
+    suspend fun updateApprovalStatus(status: String) = dao.updateApprovalStatus(status)
+    suspend fun clearAllOrders() = dao.clearAllOrders()
 }

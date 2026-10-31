@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -61,8 +63,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.SupportAgent
+import com.example.ui.components.LanguagePickerDialog
 import com.example.ui.components.VehicleChangeRequestDialog
 import com.example.data.local.entity.RiderProfileEntity
+import com.example.util.AppStrings
 import com.example.ui.theme.CashGold
 import com.example.ui.theme.OfflineRed
 import com.example.ui.theme.OnlineGreen
@@ -76,7 +80,7 @@ fun ProfileScreen(
     onSetZone: (String) -> Unit,
     onOpenSos: () -> Unit,
     onRequestVehicleChange: (newType: String, newPlate: String, reason: String) -> Unit,
-    lang: String = "bn"
+    lang: String = if (java.util.Locale.getDefault().language.startsWith("it")) "it" else "en"
 ) {
     var showZoneSelector by remember { mutableStateOf(false) }
     var showLangSelector by remember { mutableStateOf(false) }
@@ -169,6 +173,196 @@ fun ProfileScreen(
                                 text = " • ${profile?.totalDeliveries ?: 384} Trips",
                                 color = Color(0xFF94A3B8),
                                 fontSize = 12.sp
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // Availability status badge
+                        val currentAvail = profile?.availabilityStatus ?: if (profile?.isOnline == true) "Available" else "Offline"
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = when (currentAvail) {
+                                "Available" -> OnlineGreen.copy(alpha = 0.2f)
+                                "Busy" -> Color(0xFFF59E0B).copy(alpha = 0.2f)
+                                else -> OfflineRed.copy(alpha = 0.2f)
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .background(
+                                            when (currentAvail) {
+                                                "Available" -> OnlineGreen
+                                                "Busy" -> Color(0xFFF59E0B)
+                                                else -> OfflineRed
+                                            },
+                                            CircleShape
+                                        )
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = when (currentAvail) {
+                                        "Available" -> if (isBn) "উপলব্ধ (Available)" else "Available"
+                                        "Busy" -> if (isBn) "অর্ডার ডেলিভারিতে ব্যস্ত" else "On Active Order"
+                                        else -> if (isBn) "অফলাইন (Offline)" else "Offline"
+                                    },
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = when (currentAvail) {
+                                        "Available" -> OnlineGreen
+                                        "Busy" -> Color(0xFFF59E0B)
+                                        else -> OfflineRed
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Contact Information Card (Phone, Email, Emergency)
+        item {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("rider_contact_info_card"),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (isBn) "যোগাযোগের বিবরণ (Contact Info)" else "Contact Information",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant
+                        ) {
+                            Text(
+                                text = if (isBn) "যাচাইকৃত" else "Verified",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = OnlineGreen,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Phone Number Row
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${profile?.phone ?: "+8801712345678"}"))
+                                try { context.startActivity(intent) } catch (_: Exception) {}
+                            },
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = OnlineGreen.copy(alpha = 0.15f),
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Phone,
+                                    contentDescription = null,
+                                    tint = OnlineGreen,
+                                    modifier = Modifier.padding(8.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (isBn) "মোবাইল নম্বর (Phone)" else "Phone Number",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = profile?.phone ?: "+880 1712-345678",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Text(
+                                text = if (isBn) "কল করুন" else "Call",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = OnlineGreen
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Email Address Row
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                val emailIntent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:${profile?.email ?: "tanvir.rider@foodie.com"}"))
+                                try { context.startActivity(emailIntent) } catch (_: Exception) {}
+                            },
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = RiderPrimary.copy(alpha = 0.15f),
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.SupportAgent,
+                                    contentDescription = null,
+                                    tint = RiderPrimary,
+                                    modifier = Modifier.padding(8.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (isBn) "ইমেইল ঠিকানা (Email)" else "Email Address",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = profile?.email ?: "tanvir.rider@foodie.com",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Text(
+                                text = if (isBn) "ইমেইল পাঠান" else "Mail",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = RiderPrimary
                             )
                         }
                     }
@@ -366,11 +560,13 @@ fun ProfileScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Language Selector (Bangla, English, Italian)
+                    // Language Selector (English & Italian Default + All Other Languages)
+                    val currentLangItem = AppStrings.supportedLanguages.find { it.code.equals(lang, ignoreCase = true) }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { showLangSelector = !showLangSelector }
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { showLangSelector = true }
                             .padding(vertical = 8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
@@ -385,16 +581,14 @@ fun ProfileScreen(
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
                                 Text(
-                                    text = if (isBn) "ভাষা (Language / Lingua)" else if (isIt) "Lingua dell'App" else "App Language",
+                                    text = if (isBn) "অ্যাপের ভাষা (Language)" else if (isIt) "Lingua dell'Applicazione" else "App Language",
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Medium
                                 )
                                 Text(
-                                    text = when (lang) {
-                                        "bn" -> "বাংলা সক্রিয় (বাংলা / English / Italiano)"
-                                        "it" -> "Italiano attivo (Italiano / English / বাংলা)"
-                                        else -> "English active (English / বাংলা / Italiano)"
-                                    },
+                                    text = if (isBn) "ডিফল্ট: ইংরেজি ও ইতালিয়ান • পরিবর্তন করতে ট্যাপ করুন" 
+                                           else if (isIt) "Predefinito: Italiano & Inglese • Tocca per cambiare"
+                                           else "Default: English & Italian • Tap to change",
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -403,61 +597,28 @@ fun ProfileScreen(
 
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant
+                            color = RiderPrimary.copy(alpha = 0.12f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, RiderPrimary.copy(alpha = 0.4f))
                         ) {
                             Text(
-                                text = when (lang) {
-                                    "bn" -> "বাংলা 🇧🇩"
-                                    "it" -> "Italiano 🇮🇹"
-                                    else -> "English 🇬🇧"
-                                },
+                                text = "${currentLangItem?.flag ?: "🌐"} ${currentLangItem?.nativeName ?: lang.uppercase()}",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                                 color = RiderPrimary
                             )
                         }
                     }
 
                     if (showLangSelector) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            languages.forEach { (lCode, lLabel, lDesc) ->
-                                val isSelected = lang == lCode
-                                Surface(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .clickable {
-                                            onSetLanguage(lCode)
-                                            showLangSelector = false
-                                        },
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = if (isSelected) RiderPrimary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
-                                    border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, RiderPrimary) else null
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        Text(
-                                            text = when (lCode) {
-                                                "bn" -> "🇧🇩 বাংলা"
-                                                "en" -> "🇬🇧 English"
-                                                "it" -> "🇮🇹 Italiano"
-                                                else -> lLabel
-                                            },
-                                            fontSize = 12.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            color = if (isSelected) RiderPrimary else MaterialTheme.colorScheme.onSurface
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                        LanguagePickerDialog(
+                            currentLang = lang,
+                            onSelectLanguage = { newLang ->
+                                onSetLanguage(newLang)
+                                showLangSelector = false
+                            },
+                            onDismiss = { showLangSelector = false }
+                        )
                     }
 
                     Divider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))

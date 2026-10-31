@@ -19,7 +19,7 @@ interface RiderDao {
     @Query("SELECT * FROM orders ORDER BY id DESC")
     fun getAllOrders(): Flow<List<OrderEntity>>
 
-    @Query("SELECT * FROM orders WHERE status IN ('ACCEPTED', 'ARRIVED_AT_REST', 'PICKED_UP', 'ARRIVED_AT_CUST') ORDER BY id DESC")
+    @Query("SELECT * FROM orders WHERE status IN ('ACCEPTED', 'RIDER_ASSIGNED', 'ARRIVED_AT_REST', 'OUT_FOR_DELIVERY', 'PICKED_UP', 'ARRIVED_AT_CUST') ORDER BY id DESC")
     fun getActiveOrders(): Flow<List<OrderEntity>>
 
     @Query("SELECT * FROM orders WHERE status = 'NEW_PING' LIMIT 1")
@@ -100,4 +100,13 @@ interface RiderDao {
 
     @Query("UPDATE rider_profile SET vehicleType = :vehicleType WHERE id = 1")
     suspend fun updateVehicleType(vehicleType: String)
+
+    @Query("UPDATE rider_profile SET availabilityStatus = :status WHERE id = 1")
+    suspend fun updateAvailabilityStatus(status: String)
+
+    @Query("UPDATE rider_profile SET approvalStatus = :status WHERE id = 1")
+    suspend fun updateApprovalStatus(status: String)
+
+    @Query("DELETE FROM orders")
+    suspend fun clearAllOrders()
 }

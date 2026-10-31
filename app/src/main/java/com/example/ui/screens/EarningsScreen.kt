@@ -73,7 +73,11 @@ fun EarningsScreen(
     val totalBase = earnings.sumOf { it.baseFee }
     val totalDistance = earnings.sumOf { it.distanceFee }
     val totalSurge = earnings.sumOf { it.surgeFee }
-    val totalTips = earnings.sumOf { it.tip }
+    // Strict requirement: Tips field must still appear in Rider App UI, but its value must always be hardcoded/displayed as 0.00 (or €0.00)
+    val totalTips = 0.0
+    // Admin Dashboard Visibility: Total accumulated company_tip / admin_fund collected from online orders
+    val totalCompanyFund = earnings.sumOf { it.companyTip.coerceAtLeast(it.adminFund) }
+    val totalOnlineTipOrders = earnings.count { it.companyTip > 0.0 || it.adminFund > 0.0 }
 
     val walletBalance = profile?.walletBalance ?: 1450.0
     val currentFloatingCash = profile?.currentFloatingCash ?: 840.0
@@ -300,10 +304,127 @@ fun EarningsScreen(
 
                     BreakdownRow(
                         title = if (isBn) "কাস্টমার বকশিশ (Tips)" else "Customer Tips",
-                        amount = totalTips,
+                        amount = 0.00, // Strictly forced to 0.00 in Rider UI
                         icon = Icons.Default.VolunteerActivism,
                         iconColor = Color(0xFFEC4899)
                     )
+                }
+            }
+        }
+
+        // Admin Dashboard: Company Development Fund (company_tip / admin_fund) Record
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("admin_company_fund_report_card"),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF38BDF8).copy(alpha = 0.6f))
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFF0284C7).copy(alpha = 0.25f),
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AccountBalance,
+                                    contentDescription = null,
+                                    tint = Color(0xFF38BDF8),
+                                    modifier = Modifier.padding(8.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = if (isBn) "এডমিন ড্যাশবোর্ড: কোম্পানি ফান্ড রিপোর্ট" else "Admin Dashboard: Company Fund Report",
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 14.sp,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = if (isBn) "অনলাইন টিপস ➔ কোম্পানি উন্নয়ন তহবিল" else "Online Tips ➔ Company Development Fund",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF38BDF8)
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF0284C7).copy(alpha = 0.3f)
+                        ) {
+                            Text(
+                                text = if (isBn) "এডমিন রেকর্ড" else "Admin View",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF38BDF8),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = if (isBn) "মোট সংগৃহীত কোম্পানি ফান্ড (company_tip)" else "Total Collected Fund (company_tip)",
+                                fontSize = 11.sp,
+                                color = Color(0xFF94A3B8)
+                            )
+                            Text(
+                                text = "৳${String.format("%.2f", totalCompanyFund)}",
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF38BDF8)
+                            )
+                        }
+
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                text = if (isBn) "অনলাইন টিপস অর্ডার" else "Online Tip Orders",
+                                fontSize = 11.sp,
+                                color = Color(0xFF94A3B8)
+                            )
+                            Text(
+                                text = "$totalOnlineTipOrders টি সম্পন্ন",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFF1E293B).copy(alpha = 0.8f)
+                    ) {
+                        Text(
+                            text = if (isBn) {
+                                "ℹ️ চেকআউটে অনলাইন পেমেন্টের সকল টিপস স্বয়ংক্রিয়ভাবে কোম্পানি উন্নয়ন ফান্ডে (company_tip / admin_fund) জমা হয় এবং রাইডার ইন্টারফেসে 'Tips: ৳0.00' হিসেবে সংরক্ষিত থাকে।"
+                            } else {
+                                "ℹ️ Customer checkout online tips are allocated 100% to company development fund (company_tip / admin_fund) and forced as 0.00 in rider interface."
+                            },
+                            fontSize = 11.sp,
+                            color = Color(0xFFCBD5E1),
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
                 }
             }
         }

@@ -7,22 +7,32 @@ import androidx.room.PrimaryKey
 data class RiderProfileEntity(
     @PrimaryKey
     val id: Int = 1,
-    val name: String = "তানভীর আহমেদ (Tanvir Ahmed)",
-    val phone: String = "+880 1712-345678",
-    val riderCode: String = "#RD-9942",
+    val name: String = "",
+    val phone: String = "",
+    val email: String = "",
+    val riderCode: String = "",
     val vehicleType: String = "MOTORCYCLE", // "MOTORCYCLE", "BICYCLE", "SCOOTER"
-    val vehiclePlate: String = "Dhaka Metro-HA 55-8912",
-    val rating: Double = 4.92,
-    val totalDeliveries: Int = 384,
-    val acceptanceRate: Int = 98,
-    val completionRate: Int = 99,
-    val onTimeRate: Int = 96,
-    val walletBalance: Double = 1450.0,
+    val vehiclePlate: String = "",
+    val rating: Double = 5.0,
+    val totalDeliveries: Int = 0,
+    val acceptanceRate: Int = 100,
+    val completionRate: Int = 100,
+    val onTimeRate: Int = 100,
+    val walletBalance: Double = 0.0,
     val floatingCashLimit: Double = 3500.0,
-    val currentFloatingCash: Double = 840.0,
-    val isOnline: Boolean = true,
+    val currentFloatingCash: Double = 0.0,
+    val isOnline: Boolean = false,
+    val availabilityStatus: String = "Offline", // "Available", "Busy", "Offline", "Pending Approval"
     val currentZone: String = "Gulshan & Banani Hub",
-    val language: String = "bn", // "bn" or "en"
+    val language: String = if (java.util.Locale.getDefault().language.startsWith("it")) "it" else "en",
     val autoAccept: Boolean = false,
-    val dutyStartTime: Long = System.currentTimeMillis() - (2 * 3600 * 1000 + 15 * 60 * 1000)
+    val profileImageUrl: String = "",
+    val emergencyContact: String = "",
+    val dutyStartTime: Long = 0L,
+    // Rider Registration & Admin Approval fields
+    val nidNumber: String = "",
+    val licenseNumber: String = "",
+    val approvalStatus: String = "NOT_REGISTERED", // "NOT_REGISTERED", "PENDING_APPROVAL", "APPROVED", "REJECTED"
+    val rejectionReason: String = "",
+    val registeredAt: Long = 0L
 )

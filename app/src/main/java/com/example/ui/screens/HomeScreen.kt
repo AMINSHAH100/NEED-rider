@@ -76,6 +76,7 @@ fun HomeScreen(
     profile: RiderProfileEntity?,
     activeOrders: List<OrderEntity>,
     allEarnings: List<EarningEntity>,
+    locationState: com.example.util.RiderLocationState? = null,
     onToggleDuty: () -> Unit,
     onSimulateOrder: () -> Unit,
     onNavigateToActiveOrder: (OrderEntity) -> Unit,
@@ -83,7 +84,7 @@ fun HomeScreen(
     onOpenQuests: () -> Unit,
     isBn: Boolean
 ) {
-    val isOnline = profile?.isOnline ?: true
+    val isOnline = profile?.isOnline ?: false
     val todayEarnings = allEarnings.sumOf { it.totalEarned }
     val todayTrips = allEarnings.size
 
@@ -269,10 +270,10 @@ fun HomeScreen(
                             ) {
                                 Text(
                                     text = when (currentOrder.status) {
-                                        "ACCEPTED" -> if (isBn) "রেস্তোরাঁয় যান" else "To Restaurant"
-                                        "ARRIVED_AT_REST" -> if (isBn) "পিকআপ করুন" else "Pick Up Food"
-                                        "PICKED_UP" -> if (isBn) "কাস্টমারে যান" else "To Customer"
-                                        "ARRIVED_AT_CUST" -> if (isBn) "ডেলিভারি দিন" else "Deliver Food"
+                                        "ACCEPTED", "RIDER_ASSIGNED" -> if (isBn) "রেস্তোরাঁয় যান" else "To Restaurant"
+                                        "ARRIVED_AT_REST" -> if (isBn) "পিকআপ পিন" else "Pickup PIN"
+                                        "OUT_FOR_DELIVERY", "PICKED_UP" -> if (isBn) "লাইভ জিপিএস" else "Live GPS"
+                                        "ARRIVED_AT_CUST" -> if (isBn) "ডেলিভারি পিন" else "Delivery PIN"
                                         else -> currentOrder.status
                                     },
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -306,8 +307,8 @@ fun HomeScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "৳${String.format("%.0f", currentOrder.deliveryFee + currentOrder.tip + currentOrder.surgeBonus)} (${if (currentOrder.paymentMethod == "COD") "COD" else "Paid"})",
-                                fontSize = 14.sp,
+                                text = "৳${String.format("%.0f", currentOrder.deliveryFee + currentOrder.surgeBonus)} (${if (currentOrder.paymentMethod == "COD") "COD" else "Paid"}) • Tips: ৳0.00",
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = RiderPrimary
                             )
@@ -475,27 +476,97 @@ fun HomeScreen(
             }
         }
 
-        // Demo / Simulator Action Button
+        // Live Hardware GPS Telemetry & Cloud Dispatch Listener Card
         item {
-            Button(
-                onClick = onSimulateOrder,
+            Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("simulate_order_button"),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = RiderPrimary)
+                    .testTag("live_gps_telemetry_card"),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                border = androidx.compose.foundation.BorderStroke(1.dp, OnlineGreen.copy(alpha = 0.5f))
             ) {
-                Icon(
-                    imageVector = Icons.Default.AddAlert,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (isBn) "টেস্ট নতুন অর্ডার রিকোয়েস্ট পাঠান" else "Simulate New Incoming Order",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
-                )
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .background(OnlineGreen, CircleShape)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (isBn) "লাইভ হার্ডওয়্যার জিপিএস ও ডিসপ্যাচ" else "Live Hardware GPS & Dispatch",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = Color.White
+                            )
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = OnlineGreen.copy(alpha = 0.2f)
+                        ) {
+                            Text(
+                                text = "ACTIVE",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = OnlineGreen,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    val lat = locationState?.latitude ?: 23.7937
+                    val lng = locationState?.longitude ?: 90.4066
+                    val speed = locationState?.speedKmh ?: 0f
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                text = if (isBn) "রিয়েল কো-অর্ডিনেট:" else "Real Coordinates:",
+                                fontSize = 11.sp,
+                                color = Color(0xFF94A3B8)
+                            )
+                            Text(
+                                text = "${String.format("%.4f", lat)}, ${String.format("%.4f", lng)}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                text = if (isBn) "লাইভ গতি:" else "Live Speed:",
+                                fontSize = 11.sp,
+                                color = Color(0xFF94A3B8)
+                            )
+                            Text(
+                                text = "${String.format("%.1f", speed)} km/h",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = OnlineGreen
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = if (isBn) "রেস্তোরাঁ ও কাস্টমার অ্যাপের সাথে রিয়েল-টাইম ক্লাউড সংযোগ সক্রিয় রয়েছে। নতুন অর্ডার আসলে স্বয়ংক্রিয়ভাবে নোটিফিকেশন আসবে।" else "Real-time connection with Restaurant & Customer apps active. Orders dispatch automatically.",
+                        fontSize = 11.sp,
+                        color = Color(0xFF94A3B8)
+                    )
+                }
             }
         }
 
@@ -566,7 +637,7 @@ fun HomeScreen(
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = "${if (earning.paymentMethod == "COD") "COD" else "Prepaid"} • Tip: ৳${earning.tip.toInt()}",
+                                    text = "${if (earning.paymentMethod == "COD") "COD" else "Prepaid"} • Tips: ৳0.00",
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

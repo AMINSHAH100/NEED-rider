@@ -12,9 +12,11 @@ data class EarningEntity(
     val baseFee: Double,
     val distanceFee: Double,
     val surgeFee: Double,
-    val tip: Double,
-    val questBonus: Double,
-    val totalEarned: Double,
+    val tip: Double = 0.0, // Forced to 0.00 in Rider UI and earnings
+    val companyTip: Double = 0.0, // Hidden Company Tip
+    val adminFund: Double = 0.0, // Admin Development Fund
+    val questBonus: Double = 0.0,
+    val totalEarned: Double, // Excludes tip (baseFee + distanceFee + surgeFee + questBonus)
     val paymentMethod: String,
     val timestamp: Long = System.currentTimeMillis()
 )
